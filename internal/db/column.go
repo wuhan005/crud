@@ -13,47 +13,41 @@ import (
 
 var ErrUnexpectedColumnType = errors.New("unexpected column type")
 
-func ParseColumnType(typ string) (ColumnType, error) {
-	v, ok := map[string]ColumnType{
-		"character":              ColumnTypeString,
-		"integer":                ColumnTypeNumber,
-		"time without time zone": ColumnTypeTime,
-	}[typ]
-	if !ok {
-		return "", ErrUnexpectedColumnType
-	}
-	return v, nil
+var replaceMap = map[string]string{
+	"id":  "ID",
+	"uid": "UID",
 }
 
 type ColumnName string
 
-func (c *ColumnName) Lower() string {
-	name := strings.ToLower(string(*c))
-	return strcase.ToLowerCamel(name)
+// Lower transforms the lower snake case column name to lower camel case.
+// Eggplant -> eggplant
+// i_love_eggplant -> iLoveEggplant
+// user_id -> userID
+func (c ColumnName) Lower() ColumnName {
+	name := c.replaceSpecialWord()
+	return ColumnName(strcase.ToLowerCamel(name))
 }
 
-func (c *ColumnName) Upper() string {
-	name := strings.ToLower(string(*c))
+// Upper transforms the lower snake case column name to upper camel case.
+// eggplant -> Eggplant
+// user_id -> UserID
+// userID -> UserID
+func (c ColumnName) Upper() ColumnName {
+	name := c.replaceSpecialWord()
+	return ColumnName(strcase.ToCamel(name))
+}
 
-	replaceMap := map[string]string{
-		"id":  "ID",
-		"uid": "UID",
-	}
-	var replaced bool
+func (c ColumnName) replaceSpecialWord() string {
+	name := strings.ToLower(string(c))
+	name = strcase.ToSnake(name)
+	groups := strings.Split(name, "_")
 
-	groups := strings.Split(strcase.ToSnake(name), "_")
 	for i, group := range groups {
 		if _, ok := replaceMap[group]; ok {
 			groups[i] = replaceMap[group]
-			replaced = true
 		}
 	}
-	// If there is only one element, and it has been replaced, return it directly.
-	// Otherwise, the first element will be transformed to camel case.
-	if len(groups) == 1 && replaced {
-		return groups[0]
-	}
 
-	name = strings.Join(groups, "_")
-	return strcase.ToCamel(name)
+	return strings.Join(groups, "_")
 }

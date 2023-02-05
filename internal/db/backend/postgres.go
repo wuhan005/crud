@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package db
+package backend
 
 import (
 	"context"
@@ -13,22 +13,34 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/pkg/errors"
 	log "unknwon.dev/clog/v2"
+
+	"github.com/wuhan005/crud/internal/db"
 )
 
 type Postgres struct {
-	DSN string
+	dsn string
 
 	db *sqlx.DB
 }
 
-func (p *Postgres) Conn(ctx context.Context) error {
-	db, err := sqlx.ConnectContext(ctx, "postgres", p.DSN)
+func NewPostgresBackend(dsn string) *Postgres {
+	return &Postgres{
+		dsn: dsn,
+	}
+}
+
+func (p *Postgres) Connect(ctx context.Context) error {
+	db, err := sqlx.ConnectContext(ctx, "postgres", p.dsn)
 	if err != nil {
 		return errors.Wrap(err, "connect")
 	}
 
 	p.db = db
 	return nil
+}
+
+func (p *Postgres) Close(_ context.Context) error {
+	return p.db.Close()
 }
 
 func (p *Postgres) GetAllTables(ctx context.Context) ([]string, error) {
@@ -39,7 +51,7 @@ func (p *Postgres) GetAllTables(ctx context.Context) ([]string, error) {
 	return tables, nil
 }
 
-func (p *Postgres) GetTableColumn(ctx context.Context, tableName string) ([]TableColumn, error) {
+func (p *Postgres) GetTableColumns(ctx context.Context, tableName string) ([]db.TableColumn, error) {
 	type postgresColumn struct {
 		TableName  string `db:"table_name"`
 		ColumnName string `db:"column_name"`
@@ -53,16 +65,16 @@ func (p *Postgres) GetTableColumn(ctx context.Context, tableName string) ([]Tabl
 		return nil, errors.Wrap(err, "select")
 	}
 
-	tableColumns := make([]TableColumn, 0, len(columns))
+	tableColumns := make([]db.TableColumn, 0, len(columns))
 	for _, column := range columns {
-		dataType, err := ParseColumnType(column.DataType)
+		dataType, err := p.ParseColumnType(column.DataType)
 		if err != nil {
 			log.Warn("Unexpected column type: %q in table %q, ignore.", column.DataType, tableName)
 			continue
 		}
-		columnName := ColumnName(column.ColumnName)
+		columnName := db.ColumnName(column.ColumnName)
 
-		tableColumns = append(tableColumns, TableColumn{
+		tableColumns = append(tableColumns, db.TableColumn{
 			TableName:  column.TableName,
 			Name:       columnName,
 			Type:       dataType,
@@ -72,7 +84,7 @@ func (p *Postgres) GetTableColumn(ctx context.Context, tableName string) ([]Tabl
 	return tableColumns, nil
 }
 
-func (p *Postgres) GetTableIndexes(ctx context.Context, tableName string) ([]TableIndex, error) {
+func (p *Postgres) GetTableIndexes(ctx context.Context, tableName string) ([]db.TableIndex, error) {
 	type postgresIndex struct {
 		TableName string `db:"tablename"`
 		IndexName string `db:"indexname"`
@@ -85,7 +97,7 @@ func (p *Postgres) GetTableIndexes(ctx context.Context, tableName string) ([]Tab
 		return nil, errors.Wrap(err, "select")
 	}
 
-	tableIndexes := make([]TableIndex, 0, len(indexes))
+	tableIndexes := make([]db.TableIndex, 0, len(indexes))
 	for _, index := range indexes {
 		indexDef := strings.ToLower(strings.TrimSpace(index.IndexDef))
 		// Parse the index definition.
@@ -101,7 +113,7 @@ func (p *Postgres) GetTableIndexes(ctx context.Context, tableName string) ([]Tab
 		columnsStr = strings.Trim(columnsStr, "()")
 		columns := strings.Split(columnsStr, ",")
 
-		tableIndexes = append(tableIndexes, TableIndex{
+		tableIndexes = append(tableIndexes, db.TableIndex{
 			TableName: index.TableName,
 			Name:      index.IndexName,
 			IsUnique:  isUnique,
@@ -111,6 +123,19 @@ func (p *Postgres) GetTableIndexes(ctx context.Context, tableName string) ([]Tab
 	return tableIndexes, nil
 }
 
-func (p *Postgres) Close(_ context.Context) error {
-	return p.db.Close()
+func (p *Postgres) ParseColumnType(typ string) (db.ColumnType, error) {
+	v, ok := map[string]db.ColumnType{
+		"character": db.ColumnTypeString,
+		"text":      db.ColumnTypeString,
+
+		"bigint":  db.ColumnTypeNumber,
+		"integer": db.ColumnTypeNumber,
+
+		"time without time zone":   db.ColumnTypeTime,
+		"timestamp with time zone": db.ColumnTypeTime,
+	}[typ]
+	if !ok {
+		return "", db.ErrUnexpectedColumnType
+	}
+	return v, nil
 }

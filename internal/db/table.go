@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package dbutil
+package db
 
 import (
 	"strings"
@@ -13,26 +13,26 @@ import (
 
 type TableName string
 
-func (t *TableName) LowerSingular() string {
-	name := strings.ToLower(string(*t))
+func (t TableName) LowerSingular() string {
+	name := strings.ToLower(string(t))
 	singular := inflection.Singular(name)
 	return strcase.ToLowerCamel(singular)
 }
 
-func (t *TableName) LowerPlural() string {
-	name := strings.ToLower(string(*t))
+func (t TableName) LowerPlural() string {
+	name := strings.ToLower(string(t))
 	singular := inflection.Plural(name)
 	return strcase.ToLowerCamel(singular)
 }
 
-func (t *TableName) UpperSingular() string {
-	name := strings.ToLower(string(*t))
+func (t TableName) UpperSingular() string {
+	name := strings.ToLower(string(t))
 	singular := inflection.Singular(name)
 	return strcase.ToCamel(singular)
 }
 
-func (t *TableName) UpperPlural() string {
-	name := strings.ToLower(string(*t))
+func (t TableName) UpperPlural() string {
+	name := strings.ToLower(string(t))
 	singular := inflection.Plural(name)
 	return strcase.ToCamel(singular)
 }

@@ -10,8 +10,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
 
+	"github.com/wuhan005/crud/internal/db"
+	"github.com/wuhan005/crud/internal/db/backend"
 	"github.com/wuhan005/crud/internal/dbutil"
-	"github.com/wuhan005/crud/internal/generate/driver"
 )
 
 type Generator interface {
@@ -26,15 +27,38 @@ func Action(c *cli.Context) error {
 		return errors.Wrap(err, "get database type")
 	}
 
-	var structDriver driver.Driver
+	var databaseBackend db.Backend
 	switch databaseType {
 	case dbutil.TypePostgres:
-		structDriver = driver.NewPostgresDriver(dsn)
+		databaseBackend = backend.NewPostgresBackend(dsn)
 	}
 
-	tables, tableColumnsSet, tableIndexesSet, err := structDriver.GetStructure(c.Context)
+	// Connect to the database.
+	if err := databaseBackend.Connect(c.Context); err != nil {
+		return errors.Wrap(err, "connect to database")
+	}
+	defer func() { _ = databaseBackend.Close(c.Context) }()
+
+	// Get all tables of the database.
+	tables, err := databaseBackend.GetAllTables(c.Context)
 	if err != nil {
-		return errors.Wrap(err, "get structure")
+		return errors.Wrap(err, "get all tables")
+	}
+
+	var tableColumnsSet map[string][]db.TableColumn
+	var tableIndexesSet map[string][]db.TableIndex
+	for _, tableName := range tables {
+		tableColumns, err := databaseBackend.GetTableColumns(c.Context, tableName)
+		if err != nil {
+			return errors.Wrapf(err, "get table fields, table: %q", tableName)
+		}
+		tableColumnsSet[tableName] = tableColumns
+
+		tableIndexes, err := databaseBackend.GetTableIndexes(c.Context, tableName)
+		if err != nil {
+			return errors.Wrapf(err, "get table indexes, table: %q", tableName)
+		}
+		tableIndexesSet[tableName] = tableIndexes
 	}
 
 	if err := Generate(c.Context, Options{

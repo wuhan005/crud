@@ -10,12 +10,22 @@ import (
 	"time"
 )
 
-type DB interface {
-	Conn(ctx context.Context) error
-	GetAllTables(ctx context.Context) ([]string, error)
-	GetTableColumn(ctx context.Context, tableName string) ([]TableColumn, error)
-	GetTableIndexes(ctx context.Context, tableName string) ([]TableIndex, error)
+// Backend is a database backend interface.
+type Backend interface {
+	// Connect connects to the database.
+	Connect(ctx context.Context) error
+	// Close closes the database connection.
 	Close(ctx context.Context) error
+
+	// GetAllTables returns all table names.
+	GetAllTables(ctx context.Context) ([]string, error)
+	// GetTableColumns returns all columns of the given table.
+	GetTableColumns(ctx context.Context, tableName string) ([]TableColumn, error)
+	// GetTableIndexes returns all indexes of the given table.
+	GetTableIndexes(ctx context.Context, tableName string) ([]TableIndex, error)
+
+	// ParseColumnType parses the given database column type to the defined type.
+	ParseColumnType(typ string) (ColumnType, error)
 }
 
 type ColumnType string
@@ -55,7 +65,8 @@ type TableIndex struct {
 	Columns   []string
 }
 
-func (i TableIndex) GetColumns(allColumns ...TableColumn) []TableColumn {
+// GetIndexColumns returns the index columns of the given table columns.
+func (i TableIndex) GetIndexColumns(allColumns ...TableColumn) []TableColumn {
 	columns := make([]TableColumn, 0)
 
 	for _, indexColumnName := range i.Columns {
