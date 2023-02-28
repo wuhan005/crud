@@ -8,12 +8,11 @@ import (
 	"fmt"
 
 	"github.com/wuhan005/crud/internal/db"
-	"github.com/wuhan005/crud/internal/dbutil"
 	_type "github.com/wuhan005/crud/internal/syntax/type"
 )
 
 type makeModelStructOptions struct {
-	TableName dbutil.TableName
+	TableName db.TableName
 	Columns   []db.TableColumn
 }
 
@@ -33,7 +32,7 @@ func makeModelStruct(opts makeModelStructOptions) (*_type.StructType, error) {
 		if isIgnoreColumn(columnName) {
 			continue
 		}
-		structFields = append(structFields, _type.NewStructField(columnName.Upper(), _type.GoTypeString(column.Type.GoType())))
+		structFields = append(structFields, _type.NewStructField(string(columnName.Upper()), _type.GoTypeString(column.Type.GoType())))
 	}
 
 	structType := _type.NewStructType(_type.NewStructTypeOptions{

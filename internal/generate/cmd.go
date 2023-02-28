@@ -6,9 +6,13 @@ package generate
 
 import (
 	"context"
+	"go/format"
+	"os"
+	"path/filepath"
 
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
+	log "unknwon.dev/clog/v2"
 
 	"github.com/wuhan005/crud/internal/db"
 	"github.com/wuhan005/crud/internal/db/backend"
@@ -45,8 +49,8 @@ func Action(c *cli.Context) error {
 		return errors.Wrap(err, "get all tables")
 	}
 
-	var tableColumnsSet map[string][]db.TableColumn
-	var tableIndexesSet map[string][]db.TableIndex
+	tableColumnsSet := make(map[string][]db.TableColumn)
+	tableIndexesSet := make(map[string][]db.TableIndex)
 	for _, tableName := range tables {
 		tableColumns, err := databaseBackend.GetTableColumns(c.Context, tableName)
 		if err != nil {
@@ -62,11 +66,48 @@ func Action(c *cli.Context) error {
 	}
 
 	if err := Generate(c.Context, Options{
+		OutputPath: c.String("output"),
+
 		Tables:          tables,
 		TableIndexesSet: tableIndexesSet,
 		TableColumnsSet: tableColumnsSet,
 	}); err != nil {
 		return errors.Wrap(err, "generate")
+	}
+	return nil
+}
+
+type Options struct {
+	OutputPath string
+
+	Tables          []string
+	TableColumnsSet map[string][]db.TableColumn
+	TableIndexesSet map[string][]db.TableIndex
+}
+
+func Generate(ctx context.Context, opts Options) error {
+	for _, name := range opts.Tables {
+		tableName := db.TableName(name)
+		data, err := generateTableCode(ctx, generateTableCodeOptions{
+			tableName: tableName,
+			columns:   opts.TableColumnsSet[name],
+			indexes:   opts.TableIndexesSet[name],
+		})
+		if err != nil {
+			return errors.Wrapf(err, "generate table: %q", tableName)
+		}
+
+		formattedCode, err := format.Source(data)
+		if err != nil {
+			formattedCode = data
+			log.Error("Failed to format generated code: %v", err)
+		}
+
+		fileName := tableName.SnakePlural() + ".go"
+		outputFilePath := filepath.Join(opts.OutputPath, fileName)
+		if err := os.WriteFile(outputFilePath, formattedCode, 0644); err != nil {
+			return errors.Wrap(err, "write file")
+		}
 	}
 	return nil
 }

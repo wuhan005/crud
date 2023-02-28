@@ -36,3 +36,15 @@ func (t TableName) UpperPlural() string {
 	singular := inflection.Plural(name)
 	return strcase.ToCamel(singular)
 }
+
+func (t TableName) SnakeSingular() string {
+	name := strings.ToLower(string(t))
+	singular := inflection.Singular(name)
+	return strcase.ToSnake(singular)
+}
+
+func (t TableName) SnakePlural() string {
+	name := strings.ToLower(string(t))
+	singular := inflection.Plural(name)
+	return strcase.ToSnake(singular)
+}

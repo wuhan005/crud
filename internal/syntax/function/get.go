@@ -10,7 +10,6 @@ import (
 	"reflect"
 
 	"github.com/wuhan005/crud/internal/db"
-	"github.com/wuhan005/crud/internal/dbutil"
 	_type "github.com/wuhan005/crud/internal/syntax/type"
 	"github.com/wuhan005/crud/internal/syntax/variable"
 )
@@ -23,24 +22,27 @@ var (
 var _ Function = (*Get)(nil)
 
 type Get struct {
-	tableName dbutil.TableName
+	group *Group
+
+	tableName db.TableName
 	model     *_type.StructType
 	columns   []db.TableColumn
 
 	multiResult  bool
 	hasOptions   bool
 	optionStruct *_type.StructType
-	errors       variable.Errors
 }
 
 type NewFunctionGetOptions struct {
-	TableName dbutil.TableName
+	Group     *Group
+	TableName db.TableName
 	Model     *_type.StructType
 	Columns   []db.TableColumn
 	Indexes   []db.TableIndex
 }
 
 func NewFunctionGet(options NewFunctionGetOptions) (*Get, error) {
+	group := options.Group
 	model := options.Model
 	if model == nil {
 		return nil, ErrNilModel
@@ -52,11 +54,12 @@ func NewFunctionGet(options NewFunctionGetOptions) (*Get, error) {
 	tableName := options.TableName
 
 	f := &Get{
+		group:     group,
 		tableName: tableName,
 		model:     model,
 		columns:   columns,
 	}
-	f.errors = variable.Errors{f.notFoundError()}
+	f.group.AddErrors(f.notFoundError())
 
 	functionName := f.Name()
 
@@ -71,7 +74,7 @@ func NewFunctionGet(options NewFunctionGetOptions) (*Get, error) {
 		docString := "" // TODO: add doc string.
 		fields := make([]*_type.StructField, 0, len(columns))
 		for _, column := range columns {
-			fields = append(fields, _type.NewStructField(column.Name.Upper(), string(column.Type)))
+			fields = append(fields, _type.NewStructField(string(column.Name.Upper()), string(column.Type)))
 		}
 
 		f.optionStruct = _type.NewStructType(_type.NewStructTypeOptions{
@@ -89,10 +92,10 @@ func (f *Get) Name() string {
 
 	if len(f.columns) == 1 {
 		columnName := f.columns[0].Name
-		name += "By" + columnName.Upper()
+		name += "By" + columnName.Upper().String()
 	} else {
 		for _, column := range f.columns {
-			name += column.Name.Upper()
+			name += column.Name.Upper().String()
 		}
 	}
 
@@ -110,7 +113,12 @@ func (f *Get) GoType() reflect.Type {
 func (f *Get) InputParameters() variable.Parameters {
 	parameters := variable.Parameters{variable.ContextParameter()}
 	for _, column := range f.columns {
-		parameters = append(parameters, variable.NewParameterWithGoType(column.Name.Lower(), column.Type))
+		parameterName := column.Name.Lower().String()
+		if parameterName == "type" {
+			parameterName = "typ"
+		}
+
+		parameters = append(parameters, variable.NewParameterWithGoType(parameterName, column.Type))
 	}
 	return parameters
 }
@@ -135,19 +143,19 @@ func (f *Get) DocString() string {
 		givenName = "options"
 	} else {
 		returnName = "a " + f.tableName.LowerSingular()
-		givenName = f.columns[0].Name.Lower()
+		givenName = f.columns[0].Name.Lower().String()
 	}
 
 	str := fmt.Sprintf("// %s returns %s with the given %s.", f.Name(), returnName, givenName)
-	str += "\n" + "// The zero value in the options will be ignored."
+	if f.hasOptions {
+		str += "\n" + "// The zero value in the options will be ignored."
+	}
 	return str
 }
 
 func (f *Get) Body() string {
-	errorDecl := f.errors.Decl()
 	body := f.makeBody()
-	str := errorDecl + "\n"
-	str += fmt.Sprintf("func (db *%s) %s {\n %s \n}", f.tableName.LowerPlural(), f.Decl(), body)
+	str := fmt.Sprintf("func (db *%s) %s {\n %s \n}", f.tableName.LowerPlural(), f.Decl(), body)
 	return str
 }
 
@@ -158,8 +166,9 @@ func (f *Get) makeBody() string {
 		// TODO
 	} else {
 		column := f.columns[0]
+		parameterName := f.InputParameters()[1].Name // First parameter is context.
 		resultVar = f.tableName.LowerSingular()
-		whereExpr = fmt.Sprintf(`"%s = ?", %s`, column.Name.Lower(), column.Name.Lower())
+		whereExpr = fmt.Sprintf(`"%s = ?", %s`, column.Name.Lower(), parameterName)
 		getExpr = fmt.Sprintf("First(&%s)", resultVar)
 	}
 

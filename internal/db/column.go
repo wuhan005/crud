@@ -38,6 +38,10 @@ func (c ColumnName) Upper() ColumnName {
 	return ColumnName(strcase.ToCamel(name))
 }
 
+func (c ColumnName) String() string {
+	return string(c)
+}
+
 func (c ColumnName) replaceSpecialWord() string {
 	name := strings.ToLower(string(c))
 	name = strcase.ToSnake(name)

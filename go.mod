@@ -20,6 +20,7 @@ require (
 
 require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
+	github.com/dave/jennifer v1.6.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fatih/color v1.7.0 // indirect
 	github.com/jinzhu/now v1.1.4 // indirect
