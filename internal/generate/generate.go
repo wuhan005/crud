@@ -7,20 +7,16 @@ package generate
 import (
 	"bytes"
 	"context"
-	"go/format"
-	"os"
 	"text/template"
 
 	"github.com/pkg/errors"
-	log "unknwon.dev/clog/v2"
 
 	"github.com/wuhan005/crud/internal/db"
-	"github.com/wuhan005/crud/internal/dbutil"
 	"github.com/wuhan005/crud/internal/syntax/function"
 	_type "github.com/wuhan005/crud/internal/syntax/type"
 )
 
-const header = `package {{.PackageName}}
+const codeTemplate = `package {{.PackageName}}
 
 import (
 	"context"
@@ -44,8 +40,7 @@ func New{{.Users}}Store(db *gorm.DB) {{.Users}}Store {
 	return &{{.users}}{db}
 }
 
-{{.ModelStructDocString}}
-{{.ModelStructDecl}}
+{{.ModelStruct}}
 
 type {{.users}} struct {
 	*gorm.DB
@@ -54,46 +49,14 @@ type {{.users}} struct {
 {{.FunctionBody}}
 `
 
-type Options struct {
-	Tables          []string
-	TableColumnsSet map[string][]db.TableColumn
-	TableIndexesSet map[string][]db.TableIndex
-}
-
-func Generate(ctx context.Context, opts Options) error {
-	for _, name := range opts.Tables {
-		tableName := dbutil.TableName(name)
-		data, err := generateTable(ctx, generateTableOptions{
-			tableName: tableName,
-			columns:   opts.TableColumnsSet[name],
-			indexes:   opts.TableIndexesSet[name],
-		})
-		if err != nil {
-			return errors.Wrap(err, "generate table")
-		}
-
-		formatCode, err := format.Source(data)
-		if err != nil {
-			formatCode = data
-			log.Error("Failed to format generated code: %v", err)
-		}
-
-		outputFilePath := tableName.LowerPlural() + ".go"
-		if err := os.WriteFile(outputFilePath, formatCode, 0644); err != nil {
-			return errors.Wrap(err, "write file")
-		}
-	}
-	return nil
-}
-
-type generateTableOptions struct {
-	tableName dbutil.TableName
+type generateTableCodeOptions struct {
+	tableName db.TableName
 	columns   []db.TableColumn
 	indexes   []db.TableIndex
 }
 
-func generateTable(ctx context.Context, opts generateTableOptions) ([]byte, error) {
-	headerTemplate, err := template.New("header").Parse(header)
+func generateTableCode(ctx context.Context, opts generateTableCodeOptions) ([]byte, error) {
+	headerTemplate, err := template.New("header").Parse(codeTemplate)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse header template")
 	}
@@ -107,7 +70,7 @@ func generateTable(ctx context.Context, opts generateTableOptions) ([]byte, erro
 		return nil, errors.Wrap(err, "make model struct")
 	}
 
-	functions, err := makeFunctions(makeFunctionsOptions{
+	functionGroups, err := makeFunctions(makeFunctionsOptions{
 		TableName: opts.tableName,
 		Model:     model,
 		columns:   opts.columns,
@@ -117,22 +80,29 @@ func generateTable(ctx context.Context, opts generateTableOptions) ([]byte, erro
 		return nil, errors.Wrap(err, "make functions")
 	}
 	var functionDecl, functionBody string
-	for _, fun := range functions {
-		functionDecl += fun.DocString() + "\n" + fun.Decl() + "\n"
-		functionBody += fun.Body() + "\n"
+	for _, group := range functionGroups {
+		// Add error declaration.
+		for _, err := range group.Errors() {
+			functionBody += err.Decl() + "\n"
+		}
+		for _, fun := range group.Functions() {
+			functionDecl += fun.DocString() + "\n" + fun.Decl() + "\n"
+			functionBody += fun.Body() + "\n\n"
+		}
 	}
+
+	modelStruct := model.DocString() + "\n" + model.Decl()
 
 	var headerData bytes.Buffer
 	if err := headerTemplate.Execute(&headerData, map[string]interface{}{
-		"PackageName":          "db",
-		"FunctionDecl":         functionDecl,
-		"ModelStructDocString": model.DocString(),
-		"ModelStructDecl":      model.Decl(),
-		"FunctionBody":         functionBody,
-		"Users":                opts.tableName.UpperPlural(),
-		"users":                opts.tableName.LowerPlural(),
-		"User":                 opts.tableName.UpperSingular(),
-		"user":                 opts.tableName.LowerSingular(),
+		"PackageName":  "db",
+		"ModelStruct":  modelStruct,
+		"FunctionDecl": functionDecl,
+		"FunctionBody": functionBody,
+		"Users":        opts.tableName.UpperPlural(),
+		"users":        opts.tableName.LowerPlural(),
+		"User":         opts.tableName.UpperSingular(),
+		"user":         opts.tableName.LowerSingular(),
 	}); err != nil {
 		return nil, errors.Wrap(err, "execute template")
 	}
@@ -140,19 +110,21 @@ func generateTable(ctx context.Context, opts generateTableOptions) ([]byte, erro
 }
 
 type makeFunctionsOptions struct {
-	TableName dbutil.TableName
+	TableName db.TableName
 	Model     *_type.StructType
 	columns   []db.TableColumn
 	indexes   []db.TableIndex
 }
 
-func makeFunctions(options makeFunctionsOptions) ([]function.Function, error) {
-	functions := make([]function.Function, 0)
+func makeFunctions(options makeFunctionsOptions) ([]*function.Group, error) {
+	functionGroups := make([]*function.Group, 0)
 
 	// GetXXX
+	getFunctionGroup := function.NewGroup()
 	for _, index := range options.indexes {
-		indexColumns := index.GetColumns(options.columns...)
+		indexColumns := index.GetIndexColumns(options.columns...)
 		getFunction, err := function.NewFunctionGet(function.NewFunctionGetOptions{
+			Group:     getFunctionGroup,
 			TableName: options.TableName,
 			Model:     options.Model,
 			Columns:   indexColumns,
@@ -161,8 +133,9 @@ func makeFunctions(options makeFunctionsOptions) ([]function.Function, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "make get columns")
 		}
-		functions = append(functions, getFunction)
+		getFunctionGroup.AddFunction(getFunction)
 	}
+	functionGroups = append(functionGroups, getFunctionGroup)
 
-	return functions, nil
+	return functionGroups, nil
 }
