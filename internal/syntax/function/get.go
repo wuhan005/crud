@@ -80,7 +80,7 @@ func NewFunctionGet(options NewFunctionGetOptions) (*Get, error) {
 		f.optionStruct = _type.NewStructType(_type.NewStructTypeOptions{
 			Name:      optionStructName,
 			DocString: docString,
-			Fields:    nil,
+			Fields:    fields,
 		})
 	}
 
